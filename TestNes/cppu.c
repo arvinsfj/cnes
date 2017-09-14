@@ -289,12 +289,8 @@ int ppu_step_i(ppu_context *p)
         
         if ((render_enable && scanline >= -1) && (scanline <= 239)) {//可视区域的扫描线
             if (scanline == -1) {
-                if (scanline_cycle == 1) {//1个tick
-                    p->regs[REG_PPUSTATUS] &= ~(PPUSTATUS_S | PPUSTATUS_V);//将ppustatus的6、7位设置0
-                }
-                if ((scanline_cycle >= 280) && (scanline_cycle <= 304)) {//25个tick,,the vertical scroll bits
-                    p->reg_v &= ~0x7be0; p->reg_v |= (p->reg_t & 0x7be0);//设置vram的地址
-                }
+                if (scanline_cycle == 1) { p->regs[REG_PPUSTATUS] &= ~(PPUSTATUS_S | PPUSTATUS_V); }
+                if (scanline_cycle == 280) { p->reg_v &= ~0x7be0; p->reg_v |= (p->reg_t & 0x7be0); }
             }else{
                 if (scanline_cycle == 0) { ppu_sprites(p, scanline); }
                 if ((scanline_cycle >= 1) && (scanline_cycle <= 256)) { ppu_pixel(p, scanline_cycle-1, scanline); }
@@ -302,12 +298,8 @@ int ppu_step_i(ppu_context *p)
             }
             if (scanline_cycle == 256) p->reg_v = ppu_incr_y(p);//扫描线换行
             if (scanline_cycle == 257) { p->reg_v &= ~0x41f; p->reg_v |= (p->reg_t & 0x41f); }//0x41f和0x7be0相对
-            if (scanline_cycle == 321) {//1个tick
-                p->attr = p->tile_l = p->tile_h = 0;
-                ppu_fetch(p);//拿取渲染资源（attr和tile）
-                p->tile_l <<= 8; p->tile_h <<= 8; p->attr <<= 16;
-            }
-            if (scanline_cycle == 329) ppu_fetch(p);//拿取渲染资源（attr和tile）
+            if (scanline_cycle == 321) { p->attr = p->tile_l = p->tile_h = 0; ppu_fetch(p); p->tile_l <<= 8; p->tile_h <<= 8; p->attr <<= 16; }
+            if (scanline_cycle == 329) ppu_fetch(p);
             
         } else if ((scanline >= 240) && (scanline <= 260)) {//21个tick
             if ((scanline == 241) && (scanline_cycle == 1)) {//vblank:回到屏幕左上角
