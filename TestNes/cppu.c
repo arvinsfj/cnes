@@ -282,9 +282,7 @@ int ppu_step_i(ppu_context *p)
         //每行需要341个tick，总共262行(262条扫描线) 341 * 262
         const int scanline = (p->frame_ticks / 341) - 1;//当前扫描线，扫描线从-1开始，Y
         const unsigned int scanline_cycle = p->frame_ticks % 341;//当前扫描线下的第几个tick，X
-        const int show_background = (p->regs[REG_PPUMASK] & PPUMASK_b) != 0;//0:不显示背景，1:显示背景
-        const int show_sprites = (p->regs[REG_PPUMASK] & PPUMASK_s) != 0;//0:不显示精灵，1:显示精灵
-        const int render_enable = show_background || show_sprites;//只要需要显示背景或者精灵，就需要重新渲染
+        const char render_enable = p->regs[REG_PPUMASK]&(PPUMASK_b|PPUMASK_s);//需要显示背景或者精灵
         
         if ((render_enable && scanline >= -1) && (scanline <= 239)) {//可视区域的扫描线
             if (scanline == -1) {
