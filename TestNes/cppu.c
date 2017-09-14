@@ -268,21 +268,20 @@ static void ppu_fetch(ppu_context *p)
 
 int ppu_step_i(ppu_context *p)
 {
-    if (!p->frame_ticks) {//时钟周期用完了
+    if (p->frame_ticks == PPU_TICKS_PER_FRAME - 1) {//时钟周期用完了
         if (p->draw){//绘图
             uint8_t* index = (uint8_t*)p->pallete_index; pixel* pixels = (pixel*)p->pixels;
             for (unsigned long i = 0; i < PPU_HEIGHT*PPU_WIDTH; i++) *index++ = (pixels++)->c;
             p->draw((uint8_t*)p->pallete_index);
         }
-        p->frame_ticks = PPU_TICKS_PER_FRAME;//重新分配时钟周期
-        if ((p->frame & 1) || (p->regs[REG_PPUMASK]&PPUMASK_b)) p->frame_ticks -= 1;
+        p->frame_ticks = 0;//重新分配时钟周期
+        if ((p->frame & 1) || (p->regs[REG_PPUMASK]&PPUMASK_b)) p->frame_ticks += 1;
         p->frame++;//帧数加1
         return 1;
     } else {
         //每行需要341个tick，总共262行(262条扫描线) 341 * 262
-        const unsigned int tick = PPU_TICKS_PER_FRAME - p->frame_ticks;//当前是第几个tick
-        const int scanline = (tick / 341) - 1;//当前扫描线，扫描线从-1开始，Y
-        const unsigned int scanline_cycle = tick % 341;//当前扫描线下的第几个tick，X
+        const int scanline = (p->frame_ticks / 341) - 1;//当前扫描线，扫描线从-1开始，Y
+        const unsigned int scanline_cycle = p->frame_ticks % 341;//当前扫描线下的第几个tick，X
         const int show_background = (p->regs[REG_PPUMASK] & PPUMASK_b) != 0;//0:不显示背景，1:显示背景
         const int show_sprites = (p->regs[REG_PPUMASK] & PPUMASK_s) != 0;//0:不显示精灵，1:显示精灵
         const int render_enable = show_background || show_sprites;//只要需要显示背景或者精灵，就需要重新渲染
@@ -308,7 +307,7 @@ int ppu_step_i(ppu_context *p)
             }
         }
         
-        p->frame_ticks--;//ticks用完，每次减小1
+        p->frame_ticks++;//tick每次加1
         return 0;
     }
 }
@@ -316,7 +315,7 @@ int ppu_step_i(ppu_context *p)
 //对外接口函数
 void ppu_init(ppu_context *p)
 {
-    p->frame = 0; p->frame_ticks = PPU_TICKS_PER_FRAME;
+    p->frame = 0; p->frame_ticks = 0;
 }
 
 int ppu_step(ppu_context *p)
