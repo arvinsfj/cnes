@@ -23,8 +23,6 @@
 #define     PPUCTRL_S      (1 << 3)    /* Sprite pattern table address for 8x8 sprites */
 #define     PPUCTRL_I      (1 << 2)    /* VRAM address increment per CPU read/write of PPUDATA */
 #define     PPUCTRL_N      (3 << 0)    /* Base nametable address */
-#define     PPUCTRL_N_X    (1 << 0)    /* Add 256 to the X scroll position */
-#define     PPUCTRL_N_Y    (2 << 0)    /* Add 240 to the Y scroll position */
 #define     REG_PPUMASK    1
 #define     PPUMASK_s      (1 << 4)    /* Show sprites */
 #define     PPUMASK_b      (1 << 3)    /* Show background */
@@ -38,7 +36,7 @@
 #define     REG_PPUADDR    6
 #define     REG_PPUDATA    7
 
-#define     PPU_TILE_ADDR(v)    (0x2000 | ((v) & 0x0fff))
+#define     PPU_TILE_ADDR(v)    (0x2000 | ((v) & 0x0fff))//处理内存镜像
 #define     PPU_ATTR_ADDR(v)    (0x23c0 | ((v) & 0x0c00) | (((v) >> 4) & 0x38) | (((v) >> 2) & 0x07))
 
 static uint16_t ppu_incr_x(ppu_context *p)
@@ -62,7 +60,7 @@ static uint16_t ppu_incr_y(ppu_context *p)
 //PPU寄存器读写逻辑开始
 uint8_t ppu_read_r(ppu_context *p, uint16_t addr)
 {
-    uint16_t vaddr = 0; uint8_t reg = (addr-0x2000)&0x07, val = 0; int incr = 0;
+    uint8_t reg = addr&0x07, val = 0;
     switch (reg) {
         case REG_PPUSTATUS:
             val = p->regs[reg]; p->regs[reg] &= ~PPUSTATUS_V;
@@ -71,13 +69,15 @@ uint8_t ppu_read_r(ppu_context *p, uint16_t addr)
         case REG_OAMDATA:
             val = p->oam[p->oamaddr];
             break;
-        case REG_PPUDATA:
-            vaddr = p->reg_v & 0x3FFF;
-            if (vaddr <= 0x3EFF) { val = p->ppudata; p->ppudata = p->read8(vaddr); }
+        case REG_PPUDATA:{
+            static uint8_t ppudata = 0;
+            uint16_t vaddr = p->reg_v & 0x3FFF;
+            if (vaddr <= 0x3EFF) { val = ppudata; ppudata = p->read8(vaddr); }
             else { val = p->read8(vaddr); }
-            incr = (p->regs[REG_PPUCTRL] & PPUCTRL_I) ? 32 : 1;
+            int incr = (p->regs[REG_PPUCTRL] & PPUCTRL_I) ? 32 : 1;
             p->reg_v = (p->reg_v + incr) & 0x3FFF;
             break;
+        }
         default:
             val = p->regs[reg];
             break;
@@ -87,7 +87,7 @@ uint8_t ppu_read_r(ppu_context *p, uint16_t addr)
 
 void ppu_write_r(ppu_context *p, uint16_t addr, uint8_t val)
 {
-    uint16_t vaddr = 0; uint8_t reg = (addr-0x2000)&0x07; int incr = 0;
+    uint8_t reg = addr&0x07;
     switch (reg) {
         case REG_PPUCTRL:
             p->regs[reg] = val;
@@ -123,12 +123,13 @@ void ppu_write_r(ppu_context *p, uint16_t addr, uint8_t val)
             p->reg_w ^= 1;//写2次的跳动,0->1->0
             p->regs[reg] = val;
             break;
-        case REG_PPUDATA:
-            vaddr = p->reg_v & 0x3FFF;
+        case REG_PPUDATA:{
+            uint16_t vaddr = p->reg_v & 0x3FFF;
             p->write8(vaddr, val);
-            incr = (p->regs[REG_PPUCTRL] & PPUCTRL_I) ? 32 : 1;
+            int incr = (p->regs[REG_PPUCTRL] & PPUCTRL_I) ? 32 : 1;
             p->reg_v = (p->reg_v + incr) & 0x3FFF;
             break;
+        }
         default:
             p->regs[reg] = val;
             break;
@@ -268,20 +269,21 @@ static void ppu_fetch(ppu_context *p)
 
 int ppu_step_i(ppu_context *p)
 {
-    if (p->frame_ticks == PPU_TICKS_PER_FRAME - 1) {//时钟周期用完了
+    if (!p->frame_ticks) {//时钟周期用完了
         if (p->draw){//绘图
             uint8_t* index = (uint8_t*)p->pallete_index; pixel* pixels = (pixel*)p->pixels;
             for (unsigned long i = 0; i < PPU_HEIGHT*PPU_WIDTH; i++) *index++ = (pixels++)->c;
             p->draw((uint8_t*)p->pallete_index);
         }
-        p->frame_ticks = 0;//重新分配时钟周期
-        if ((p->frame & 1) || (p->regs[REG_PPUMASK]&PPUMASK_b)) p->frame_ticks += 1;
+        p->frame_ticks = PPU_TICKS_PER_FRAME;//重新分配时钟周期
+        if ((p->frame & 1) || (p->regs[REG_PPUMASK]&PPUMASK_b)) p->frame_ticks -= 1;
         p->frame++;//帧数加1
         return 1;
     } else {
         //每行需要341个tick，总共262行(262条扫描线) 341 * 262
-        const int scanline = (p->frame_ticks / 341) - 1;//当前扫描线，扫描线从-1开始，Y
-        const unsigned int scanline_cycle = p->frame_ticks % 341;//当前扫描线下的第几个tick，X
+        const unsigned int tick = PPU_TICKS_PER_FRAME - p->frame_ticks;//已经用完的tick数目
+        const int scanline = (tick / 341) - 1;//当前扫描线，扫描线从-1开始，Y
+        const unsigned int scanline_cycle = tick % 341;//当前扫描线下的第几个tick，X
         const char render_enable = p->regs[REG_PPUMASK]&(PPUMASK_b|PPUMASK_s);//需要显示背景或者精灵
         
         if ((render_enable && scanline >= -1) && (scanline <= 239)) {//可视区域的扫描线
@@ -305,7 +307,7 @@ int ppu_step_i(ppu_context *p)
             }
         }
         
-        p->frame_ticks++;//tick每次加1
+        p->frame_ticks--;//tick每次减1
         return 0;
     }
 }
@@ -313,7 +315,7 @@ int ppu_step_i(ppu_context *p)
 //对外接口函数
 void ppu_init(ppu_context *p)
 {
-    p->frame = 0; p->frame_ticks = 0;
+    p->frame = 0; p->frame_ticks = PPU_TICKS_PER_FRAME;
 }
 
 int ppu_step(ppu_context *p)

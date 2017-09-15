@@ -27,8 +27,6 @@ typedef struct
     uint8_t oam[256];//SPR-RAM (Sprite RAM), to store the sprite attributes.
     uint8_t oamaddr;
     
-    uint8_t ppudata;
-    
     uint16_t reg_v;    /* Current VRAM address (15 bits) */
     uint16_t reg_t;    /* Temporary VRAM address (15 bits) */
     uint8_t  reg_x;    /* Fine X scroll (3 bits) */
@@ -43,7 +41,7 @@ typedef struct
     
     unsigned int frame;
     unsigned int frame_ticks;
-        
+            
     unsigned int scanline_sprites[8];//每条扫描线最多渲染8个精灵
     unsigned int scanline_num_sprites;//当前需要渲染的精灵数目，最大为8
     
