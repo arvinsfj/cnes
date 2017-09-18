@@ -246,7 +246,7 @@ mmc3_ppuread(struct cnes_context *av, uint16_t addr)
 		if (addr >= 0x3000)
 			addr -= 0x1000;
 
-		const unsigned int tick = PPU_TICKS_PER_FRAME - av->ppu.frame_ticks;
+		const unsigned int tick = av->ppu.frame_ticks;
 		const int scanline = (tick / 341) - 1;
 
 		if (scanline >= 0 && scanline <= 239) {
