@@ -9,9 +9,6 @@
 #ifndef cppu_h
 #define cppu_h
 
-#define    PPU_WIDTH        256
-#define    PPU_HEIGHT       240
-
 typedef struct
 {
     uint8_t priority;
@@ -39,8 +36,8 @@ typedef struct
     uint8_t sprites_scanline[8];//每条扫描线最多渲染8个精灵
     uint8_t sprites_num;//当前需要渲染的精灵数目，最大为8
     
-    pixel pixels[PPU_HEIGHT][PPU_WIDTH];
-    uint8_t pallete_index[PPU_HEIGHT][PPU_WIDTH];
+    pixel pixels[240][256];
+    uint8_t pallete_index[240][256];
     
     uint32_t frame;
     uint32_t frame_ticks;

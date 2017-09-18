@@ -40,14 +40,13 @@
 static uint16_t ppu_incr_x(ppu_context *p)
 {
     uint16_t v = p->reg_v;//异或运算(^)可以理解成对应位(bit)的01切换操作
-    if ((v&0x001F) == 31) { v&=0xFFE0; return v^=0x0400; }
-    return ++v;
+    if ((v&0x001F)^0x001F) return ++v; else return (v&0xFFE0)^0x0400;
 }
 
 static uint16_t ppu_incr_y(ppu_context *p)
 {
     uint16_t v = p->reg_v;
-    if ((v&0x7000) != 0x7000) return v+=0x1000; //fine y
+    if ((v&0x7000)^0x7000) return v+=0x1000; //fine y
     uint16_t y = (v&0x03E0) >> 5; v&=0x8C1F;
     if (y == 29) { y = 0;  v ^= 0x0800; } else if (y == 31) y = 0; else y++;
     return v | y << 5;
@@ -126,7 +125,7 @@ static void ppu_sprites(ppu_context *p, uint8_t y)
     uint8_t sprite_height = p->regs[REG_PPUCTRL] & PPUCTRL_H ? 16 : 8 , sprite_y = 0; p->sprites_num = 0;
     for (uint8_t n = 0; n < 64 && p->sprites_num < 8; n++) {
         sprite_y = p->oam[n * 4 + 0] + 1;//精灵的左上角坐标y值+1
-        if (sprite_y == 0 || sprite_y >= 0xf0) continue;
+        if (sprite_y == 0 || sprite_y >= 0xF0) continue;
         if (y>=sprite_y && y<sprite_y+sprite_height) p->sprites_scanline[p->sprites_num++] = n;
     }
 }
@@ -191,7 +190,7 @@ static void ppu_pixel(ppu_context *p, uint8_t x, uint8_t y)
             
             const uint8_t pat_l = p->read8(pat_start + pat_off);
             const uint8_t pat_h = p->read8(pat_start + pat_off + 8);
-            const int bit = flip_h ? xrel & 7 : 7 - (xrel & 7);
+            const uint8_t bit = flip_h ? xrel & 7 : 7 - (xrel & 7);
             //获取真实的像素点深度,调色板内的颜色编号
             const uint8_t pal = (pat_l & 1 << bit ? 1 : 0) | (pat_h & 1 << bit ? 2 : 0);
             if (!n && p->pixels[y][x].pal && pal) {
@@ -202,7 +201,7 @@ static void ppu_pixel(ppu_context *p, uint8_t x, uint8_t y)
             if (p->pixels[y][x].has_sprite) continue;
             if (pal) p->pixels[y][x].has_sprite = 1;
             if (priority <= p->pixels[y][x].priority || !pal) continue;
-            const uint8_t cs = (sprite_attr & 0x3) + 4;//得到sprite的调色板编号
+            const uint8_t cs = (sprite_attr & 3) + 4;//得到sprite的调色板编号
             p->pixels[y][x].priority = priority;
             p->pixels[y][x].pal = pal;
             p->pixels[y][x].c = p->read8(0x3F00 + (cs << 2) + pal) & 0x3F;//获取真实的系统调色板索引数值
@@ -230,9 +229,8 @@ static void ppu_fetch(ppu_context *p)
         tmpattr <<= 2; tmpattr |= ppu_bg_cs(curattr, xscroll + i, yscroll);
     }
     p->attr |= tmpattr;//设置attr，每个像素占用2bits，一个tile在扫描线上占用8个像素，即1个tile在一条扫描线上占用16位attr
-    const uint16_t pat_start = p->regs[REG_PPUCTRL] & PPUCTRL_B ? 0x1000 : 0x0000;
-    const uint16_t pat_off = (p->read8(PPU_TILE_ADDR(p->reg_v)) << 4) + (p->reg_v >> 12);
-    p->tile_l |= p->read8(pat_start + pat_off); p->tile_h |= p->read8(pat_start + pat_off + 8);
+    const uint16_t pat_addr = (p->regs[REG_PPUCTRL]&PPUCTRL_B ? 0x1000 : 0x0000) + (p->read8(PPU_TILE_ADDR(p->reg_v))<<4) + (p->reg_v>>12);
+    p->tile_l |= p->read8(pat_addr); p->tile_h |= p->read8(pat_addr + 8);
     p->reg_v = ppu_incr_x(p);//vram地址增加,按tile为单位增加
 }
 
@@ -241,10 +239,10 @@ int ppu_step_i(ppu_context *p)
     if (p->frame_ticks == 89342) {//时钟周期用完了
         if (p->draw){//绘图
             uint8_t* index = (uint8_t*)p->pallete_index; pixel* pixels = (pixel*)p->pixels;
-            for (uint32_t i = 0; i < PPU_HEIGHT*PPU_WIDTH; i++) *index++ = (pixels++)->c;
+            for (uint32_t i = 0; i < 61440; i++) *index++ = (pixels++)->c;
             p->draw((uint8_t*)p->pallete_index);
         }
-        p->frame++ & 1 || p->regs[REG_PPUMASK] & PPUMASK_b ? (p->frame_ticks = 1) : (p->frame_ticks = 0) ;
+        p->frame++ & 1 || p->regs[REG_PPUMASK]&PPUMASK_b ? (p->frame_ticks = 1) : (p->frame_ticks = 0) ;
         return 1;
     } else {
         //每行需要341个tick，总共262行(262条扫描线) 341 * 262
@@ -255,9 +253,9 @@ int ppu_step_i(ppu_context *p)
                 if (scanline_cycle == 1) p->regs[REG_PPUSTATUS] &= ~(PPUSTATUS_S | PPUSTATUS_V);
                 if (scanline_cycle == 280) { p->reg_v &= ~0x7BE0; p->reg_v |= p->reg_t & 0x7BE0; }//scroll y
             }else{
-                if (scanline_cycle == 0) ppu_sprites(p, scanline);
-                if ((scanline_cycle >= 1) && (scanline_cycle <= 256)) ppu_pixel(p, scanline_cycle-1, scanline);
-                if (scanline_cycle > 0 && scanline_cycle < 256 && (scanline_cycle & 7) == 0) ppu_fetch(p);
+                if (!scanline_cycle) ppu_sprites(p, scanline);
+                if (scanline_cycle >= 1 && scanline_cycle <= 256) ppu_pixel(p, scanline_cycle-1, scanline);
+                if (scanline_cycle > 0 && scanline_cycle < 256 && !(scanline_cycle & 7)) ppu_fetch(p);
             }
             if (scanline_cycle == 256) p->reg_v = ppu_incr_y(p);//扫描线换行
             if (scanline_cycle == 257) { p->reg_v &= ~0x41f; p->reg_v |= (p->reg_t & 0x41f); }//0x41f和0x7be0相对 scroll x
